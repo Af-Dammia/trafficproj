@@ -1,0 +1,14 @@
+pipeline:
+  jars:
+    - /.venv/lib/python3.10/site-packages/pyflink/lib/flink-connector-kafka-1.17.2.jar
+    - /.venv/lib/python3.10/site-packages/pyflink/lib/kafka-clients-2.8.1.jar
+  jobmanager.rpc.address: localhost
+  taskmanager.numberOfTaskSlots: 30
+  jobmanager.memory.process.size: 1600m
+  taskmanager.memory.process.size: 1728m
+  taskmanager.memory.task.heap.size: 1024m
+  taskmanager.memory.managed.size: 512m
+  jobmanager.memory.heap.size: 512m
+  jobmanager.memory.off-heap.size: 256m
+
+

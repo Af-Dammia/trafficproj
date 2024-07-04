@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taxi Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            background-color: #f0f0f0;
+        }
+
+        .dashboard {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 80%;
+            max-width: 800px;
+            margin-bottom: 20px;
+            overflow-y: auto;
+            max-height: 40vh; /* Set the height of the dashboard container */
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+
+        .stat {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+        }
+
+        .stat-title {
+            font-weight: bold;
+        }
+
+        .stat-value {
+            color: #007bff;
+        }
+
+        .warnings h2 {
+            margin: 10px 0;
+        }
+
+        .warnings ul {
+            list-style-type: none;
+            padding: 0;
+            max-height: 100px; /* Set the height of the warnings box */
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 10px;
+            background-color: #f9f9f9;
+        }
+
+        #mapContainer {
+            width: 80%;
+            max-width: 800px;
+            height: 60vh; /* Set the height of the map container */
+            overflow: hidden;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+    </style>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+</head>
+<body>
+    <div class="dashboard">
+        <h1>Taxi Dashboard</h1>
+        <div class="stat">
+            <div class="stat-title">Active Taxis:</div>
+            <div class="stat-value" id="activeTaxisValue">0</div>
+        </div>
+        <div class="stat">
+            <div class="stat-title">Total Distance Covered (km):</div>
+            <div class="stat-value" id="totalDistanceValue">0</div>
+        </div>
+        <div class="warnings">
+            <h2>Speed Incident</h2>
+            <ul id="speedWarningsList"></ul>
+        </div>
+        <div class="warnings">
+            <h2>Area Violation</h2>
+            <ul id="areaWarningsList"></ul>
+        </div>
+    </div>
+    <div id="mapContainer">
+        <div id="map"></div>
+    </div>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const map = L.map('map').setView([39.9163447, 116.3971546], 13);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            const forbiddenCity = L.circle([39.9163447, 116.3971546], {
+                color: 'red',
+                fillColor: '#f03',
+                fillOpacity: 0.5,
+                radius: 10000
+            }).addTo(map);
+
+            let taxiMarkers = {};
+
+            fetchData();
+            setInterval(fetchData, 5000);
+
+            function fetchData() {
+                fetch('/api/data')
+                    .then(response => response.json())
+                    .then(data => {
+                        updateDashboard(data);
+                        updateMap(data);
+                    })
+                    .catch(error => {
+                        console.error('Error fetching data:', error);
+                    });
+            }
+
+            function updateDashboard(data) {
+                const activeTaxisCount = data.length;
+                const totalDistance = data.reduce((sum, taxi) => sum + taxi.total_distance, 0);
+
+                document.getElementById('activeTaxisValue').textContent = activeTaxisCount;
+                document.getElementById('totalDistanceValue').textContent = totalDistance.toFixed(2);
+
+                const speedWarnings = data.filter(taxi => taxi.average_speed > 60);
+                const areaWarnings = data.filter(taxi => {
+                    const distance = calculateDistance(taxi.last_location[0], taxi.last_location[1], 39.9163447, 116.3971546);
+                    return distance > 10;
+                });
+
+                updateWarningsList('speedWarningsList', speedWarnings, taxi => `Taxi ${taxi.taxi_id} is speeding (${taxi.average_speed.toFixed(2)} km/h)`);
+                updateWarningsList('areaWarningsList', areaWarnings, taxi => `Taxi ${taxi.taxi_id} is leaving the Forbidden City area`);
+            }
+
+            function updateWarningsList(elementId, warnings, formatMessage) {
+                const listElement = document.getElementById(elementId);
+                listElement.innerHTML = '';
+
+                warnings.forEach(warning => {
+                    const li = document.createElement('li');
+                    li.textContent = formatMessage(warning);
+                    listElement.appendChild(li);
+                });
+            }
+
+            function updateMap(data) {
+                data.forEach(taxi => {
+                    const { taxi_id, last_location } = taxi;
+                    if (!last_location) return;
+
+                    if (taxiMarkers[taxi_id]) {
+                        taxiMarkers[taxi_id].setLatLng(last_location);
+                    } else {
+                        taxiMarkers[taxi_id] = L.marker(last_location).addTo(map).bindPopup(`Taxi ${taxi_id}`);
+                    }
+                });
+            }
+
+            function calculateDistance(lat1, lon1, lat2, lon2) {
+                const R = 6371; // Radius of the Earth in km
+                const dLat = (lat2 - lat1) * Math.PI / 180;
+                const dLon = (lon1 - lon2) * Math.PI / 180;
+                const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                          Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                return R * c;
+            }
+        });
+    </script>
+</body>
+</html>
